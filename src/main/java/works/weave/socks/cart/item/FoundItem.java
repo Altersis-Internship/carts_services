@@ -1,15 +1,16 @@
 package works.weave.socks.cart.item;
 
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import works.weave.socks.cart.entities.Item;
 
 import java.util.List;
 import java.util.function.Supplier;
 
-import static org.slf4j.LoggerFactory.getLogger;
-
 public class FoundItem implements Supplier<Item> {
-    private final Logger LOG = getLogger(getClass());
+
+    private static final Logger LOG = LoggerFactory.getLogger(FoundItem.class);
+
     private final Supplier<List<Item>> items;
     private final Supplier<Item> item;
 
@@ -28,10 +29,9 @@ public class FoundItem implements Supplier<Item> {
 
     public boolean hasItem() {
         boolean present = items.get().stream()
-                .filter(item.get()::equals)
-                .findFirst()
-                .isPresent();
-        LOG.debug((present ? "Found" : "Didn't find") + " item: " + item.get() + ", in: " + items.get());
+                .anyMatch(item.get()::equals);
+
+        LOG.debug("{} item: {}, in: {}", present ? "Found" : "Didn't find", item.get(), items.get());
         return present;
     }
 }

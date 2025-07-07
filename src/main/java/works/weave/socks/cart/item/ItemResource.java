@@ -16,7 +16,7 @@ public class ItemResource implements Resource<Item> {
 
     @Override
     public Runnable destroy() {
-        return () -> itemRepository.destroy(value().get());
+        return () -> itemRepository.destroy(item.get());
     }
 
     @Override
@@ -26,11 +26,15 @@ public class ItemResource implements Resource<Item> {
 
     @Override
     public Supplier<Item> value() {
-        return item;    // Basically a null method. Gets the item from the supplier.
+        return item;
     }
 
     @Override
     public Runnable merge(Item toMerge) {
-        return () -> itemRepository.save(new Item(value().get(), toMerge.quantity()));
+        return () -> {
+            Item base = item.get();
+            Item merged = new Item(base, toMerge.getQuantity());
+            itemRepository.save(merged);
+        };
     }
 }

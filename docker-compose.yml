@@ -1,0 +1,67 @@
+services:
+  carts-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carts-service
+    ports:
+      - "8081:8081"       # expose port 8081 du conteneur vers l’hôte
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DATA_MONGODB_URI=mongodb://carts-db:27017/data
+    networks:
+      - monitoring-net
+    depends_on:
+      - users-carts-mock
+      - carts-db
+
+  users-carts-mock:
+    image: mockserver/mockserver
+    container_name: users-carts-mock
+    ports:
+      - "1080:1080"
+    networks:
+      - monitoring-net
+    environment:
+      - MOCKSERVER_INITIALIZATION_JSON_PATH=/config/mock.json
+    volumes:
+      - ./mock-expectations.json:/config/mock.json
+
+  carts-db:
+    image: mongo:6
+    container_name: carts-db
+    ports:
+      - "27017:27017"
+    networks:
+      - monitoring-net
+    volumes:
+      - mongo-data:/data/db
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - "3000:3000"
+    networks:
+      - monitoring-net
+    depends_on:
+      - prometheus
+
+networks:
+  monitoring-net:
+    driver: bridge
+
+volumes:
+  mongo-data:

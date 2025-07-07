@@ -15,7 +15,7 @@ public interface Resource<T> {
 
     class CartFake implements Resource<Cart> {
         private final String customerId;
-        private Cart cart = null;
+        private Cart cart;
 
         public CartFake(String customerId) {
             this.customerId = customerId;
@@ -28,20 +28,30 @@ public interface Resource<T> {
 
         @Override
         public Supplier<Cart> create() {
-            return () -> cart = new Cart(customerId);
+            return () -> {
+                cart = new Cart(customerId);
+                return cart;
+            };
         }
 
         @Override
         public Supplier<Cart> value() {
-            if (cart == null) {
-                create().get();
-            }
-            return () -> cart;
+            return () -> {
+                if (cart == null) {
+                    create().get();
+                }
+                return cart;
+            };
         }
 
         @Override
         public Runnable merge(Cart toMerge) {
-            return null;
+            return () -> {
+                if (cart == null) {
+                    create().get();
+                }
+                toMerge.getItems().forEach(item -> cart.add(item));
+            };
         }
     }
 }

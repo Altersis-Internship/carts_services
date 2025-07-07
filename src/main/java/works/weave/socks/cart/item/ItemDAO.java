@@ -13,23 +13,25 @@ public interface ItemDAO {
     Item findOne(String id);
 
     class Fake implements ItemDAO {
-        private Map<String, Item> store = new HashMap<>();
+        private final Map<String, Item> store = new HashMap<>();
 
         @Override
         public Item save(Item item) {
-            return store.put(item.itemId(), item);
+            store.put(item.getItemId(), item);
+            return item;
         }
 
         @Override
         public void destroy(Item item) {
-            store.remove(item.itemId());
-
+            store.remove(item.getItemId());
         }
 
         @Override
         public Item findOne(String id) {
-            return store.entrySet().stream().filter(i -> i.getValue().id().equals(id)).map(Map.Entry::getValue)
-                    .findFirst().orElse(null);
+            return store.values().stream()
+                    .filter(i -> id.equals(i.getId()))
+                    .findFirst()
+                    .orElse(null);
         }
     }
 }

@@ -6,6 +6,7 @@ import works.weave.socks.cart.entities.Cart;
 import java.util.function.Supplier;
 
 public class CartResource implements Resource<Cart>, HasContents<CartContentsResource> {
+
     private final CartDAO cartRepository;
     private final String customerId;
 
@@ -29,14 +30,16 @@ public class CartResource implements Resource<Cart>, HasContents<CartContentsRes
         return new FirstResultOrDefault<>(
                 cartRepository.findByCustomerId(customerId),
                 () -> {
-                    create().get();
-                    return value().get();
+                    create().get(); // ensure it exists
+                    return value().get(); // re-fetch
                 });
     }
 
     @Override
     public Runnable merge(Cart toMerge) {
-        return () -> toMerge.contents().forEach(item -> contents().get().add(() -> item).run());
+        return () -> toMerge.getItems().forEach(item ->
+                contents().get().add(() -> item).run()
+        );
     }
 
     @Override

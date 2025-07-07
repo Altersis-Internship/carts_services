@@ -7,13 +7,14 @@ import works.weave.socks.cart.middleware.HTTPMonitoringInterceptor;
 
 @Configuration
 public class WebMvcConfig {
+
     @Bean
-    HTTPMonitoringInterceptor httpMonitoringInterceptor() {
+    public HTTPMonitoringInterceptor httpMonitoringInterceptor() {
         return new HTTPMonitoringInterceptor();
     }
 
     @Bean
-    public MappedInterceptor myMappedInterceptor(HTTPMonitoringInterceptor interceptor) {
+    public MappedInterceptor mappedInterceptor(HTTPMonitoringInterceptor interceptor) {
         return new MappedInterceptor(new String[]{"/**"}, interceptor);
     }
 }

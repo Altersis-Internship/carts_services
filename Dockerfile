@@ -1,6 +1,10 @@
-FROM java:openjdk-8-alpine
+# Utilise une image Java 17
+FROM eclipse-temurin:17-jdk
 
-WORKDIR /usr/src/app
-COPY ./target/*.jar ./app.jar
+WORKDIR /app
 
-ENTRYPOINT ["java","-Djava.security.egd=file:/dev/urandom","-jar","./app.jar", "--port=80"]
+# Copie le JAR Spring Boot correctement généré par Maven
+COPY target/carts.jar app.jar
+
+# Point d'entrée
+ENTRYPOINT ["java", "-jar", "app.jar"]
