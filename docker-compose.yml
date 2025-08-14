@@ -1,3 +1,5 @@
+version: '3'
+
 services:
   carts-service:
     build:
@@ -5,15 +7,19 @@ services:
       dockerfile: Dockerfile
     container_name: carts-service
     ports:
-      - "8081:8081"       # expose port 8081 du conteneur vers l’hôte
+      - "8081:8081"
     environment:
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_DATA_MONGODB_URI=mongodb://carts-db:27017/data
+      - JAVA_OPTS=-javaagent:/jmx_prometheus_javaagent.jar=8080:/prometheus-jmx-config.yaml
     networks:
       - monitoring-net
     depends_on:
       - users-carts-mock
       - carts-db
+    volumes:
+      - ./jmx_agent:/jmx_prometheus_javaagent.jar:ro
+      - ./prometheus-jmx-config.yaml:/prometheus-jmx-config.yaml:ro
 
   users-carts-mock:
     image: mockserver/mockserver
@@ -41,7 +47,8 @@ services:
     image: prom/prometheus:latest
     container_name: prometheus
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts/:/etc/prometheus/alerts/:ro
     ports:
       - "9090:9090"
     networks:
@@ -52,12 +59,16 @@ services:
     container_name: grafana
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_DEFAULT_THEME=light
     ports:
       - "3000:3000"
     networks:
       - monitoring-net
     depends_on:
       - prometheus
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/:/etc/grafana/provisioning/
 
 networks:
   monitoring-net:
@@ -65,3 +76,4 @@ networks:
 
 volumes:
   mongo-data:
+  grafana-data:

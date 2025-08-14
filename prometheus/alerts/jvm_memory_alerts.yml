@@ -1,0 +1,26 @@
+groups:
+- name: jvm_memory_alerts
+  rules:
+  - alert: HighMetaspaceUsage
+    expr: jvm_memory_used_bytes{area="metaspace"} / jvm_memory_max_bytes{area="metaspace"} > 0.9
+    labels:
+      severity: warning
+    annotations:
+      description: Metaspace usage exceeds 90% of capacity
+      summary: High Metaspace Usage on {{ $labels.instance }}
+
+  - alert: LowHeapUtilization
+    expr: jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} < 0.1
+    labels:
+      severity: info
+    annotations:
+      description: Heap memory utilization below 10% - consider reducing allocation
+      summary: Low Heap Utilization on {{ $labels.instance }}
+
+  - alert: MemoryLeakPotential
+    expr: increase(jvm_memory_used_bytes{area="heap"}[1h]) > 536870912  # 500MB in bytes
+    labels:
+      severity: warning
+    annotations:
+      description: Heap memory increasing steadily - potential memory leak
+      summary: Possible Memory Leak on {{ $labels.instance }}

@@ -13,6 +13,7 @@ import works.weave.socks.cart.item.FoundItem;
 import works.weave.socks.cart.item.ItemDAO;
 import works.weave.socks.cart.item.ItemResource;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
@@ -27,7 +28,8 @@ public class ItemsController {
     private final CartsController cartsController;
     private final CartDAO cartDAO;
 
-    @Value("${http.timeout:5}")
+    // Configuration des simulations
+    @Value("${http.timeout:5000}")
     private long timeout;
 
     @Value("${simulate.latency:false}")
@@ -48,18 +50,47 @@ public class ItemsController {
     @Value("${simulate.error:false}")
     private boolean simulateError;
 
+    @Value("${simulate.gc:false}")
+    private boolean simulateGc;
+
+    @Value("${simulate.buffer:false}")
+    private boolean simulateBuffer;
+
+    @Value("${simulate.leak.size:10240}") // en KB (10MB par défaut)
+    private int leakSize;
+
+    @Value("${simulate.leak.interval:1000}") // en ms
+    private int leakInterval;
+
+    @Value("${simulate.gc.interval:30000}") // en ms
+    private int gcInterval;
+
+    @Value("${simulate.thread.count:50}")
+    private int threadCount;
+
+    @Value("${simulate.buffer.size:1048576}") // 1MB
+    private int bufferSize;
+
     private static int successfulOrderCount = 0;
     private static final List<byte[]> memoryLeakList = new CopyOnWriteArrayList<>();
+    private static final List<ByteBuffer> directBuffers = new CopyOnWriteArrayList<>();
 
     public ItemsController(ItemDAO itemDAO, CartsController cartsController, CartDAO cartDAO) {
         this.itemDAO = itemDAO;
         this.cartsController = cartsController;
         this.cartDAO = cartDAO;
+        
+        // Démarrer les simulations au démarrage
+        startMemoryLeak();
+        simulateGcProblems();
+        simulateCpuLoad();
+        simulateThreadProblems();
+        simulateBufferProblems();
     }
 
     @GetMapping(value = "/{itemId}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public Item get(@PathVariable String customerId, @PathVariable String itemId)  throws InterruptedException {
+    public Item get(@PathVariable String customerId, @PathVariable String itemId) throws InterruptedException {
         simulateProblemsIfEnabled();
         return new FoundItem(() -> getItems(customerId), () -> new Item(itemId)).get();
     }
@@ -71,17 +102,27 @@ public class ItemsController {
             simulateProblemsIfEnabled();
             return cartsController.get(customerId).contents();
         } catch (InterruptedException e) {
-            e.printStackTrace();
-            return null;
+            Thread.currentThread().interrupt();
+            LOG.error("Thread interrupted while getting items", e);
+            return List.of();
         }
     }
+    private static int postRequestCount = 0;
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    public Item addToCart(@PathVariable String customerId, @RequestBody Item item)  throws InterruptedException {
+    public Item addToCart(@PathVariable String customerId, @RequestBody Item item) throws InterruptedException {
+        postRequestCount++;
+
+        if (simulateError && postRequestCount >= 6) {
+            LOG.error("💥 Simulated error on POST request #{}", postRequestCount);
+            throw new RuntimeException("Simulated error: POST #" + postRequestCount + " failed");
+        }
+
+        simulateProblemsIfEnabled(); // <--- NE PAS compter ici
+
         FoundItem foundItem = new FoundItem(() -> getItems(customerId), () -> item);
-        successfulOrderCount++;
-        simulateProblemsIfEnabled();
+
         if (!foundItem.hasItem()) {
             Supplier<Item> newItem = new ItemResource(itemDAO, () -> item).create();
             LOG.debug("Did not find item. Creating item for user: {}, {}", customerId, newItem.get());
@@ -96,10 +137,10 @@ public class ItemsController {
         }
     }
 
-    
+
     @GetMapping("/metrics")
     public int getSuccessfulOrderCount() {
-    return successfulOrderCount;
+        return successfulOrderCount;
     }
 
     @DeleteMapping("/{itemId}")
@@ -108,6 +149,7 @@ public class ItemsController {
         FoundItem foundItem = new FoundItem(() -> getItems(customerId), () -> new Item(itemId));
         Item item = foundItem.get();
         simulateProblemsIfEnabled();
+        
         LOG.debug("Removing item from cart: {}", item);
         new CartResource(cartDAO, customerId).contents().get().delete(() -> item).run();
 
@@ -120,22 +162,32 @@ public class ItemsController {
     public void updateItem(@PathVariable String customerId, @RequestBody Item item) throws InterruptedException {
         simulateProblemsIfEnabled();
         ItemResource itemResource = new ItemResource(itemDAO, () -> {
-			try {
-				return get(customerId, item.getItemId());
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			return item;
-		});
+            try {
+                return get(customerId, item.getItemId());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOG.error("Thread interrupted while getting item", e);
+                return item;
+            }
+        });
+        
         LOG.debug("Merging item in cart for user: {}, {}", customerId, item);
         itemResource.merge(item).run();
     }
 
+    @GetMapping("/simulateError")
+    public void simulateHttpError() {
+        if (simulateError) {
+            LOG.error("💥 Simulating HTTP error");
+            throw new RuntimeException("Simulated HTTP error");
+        }
+    }
+
     private void simulateProblemsIfEnabled() throws InterruptedException {
+       
         if (simulateLatency) {
-            Thread.sleep(3000);
-            LOG.warn("🕒 Simulated latency (3s)");
+            Thread.sleep(timeout);
+            LOG.warn("🕒 Simulated latency ({}ms)", timeout);
         }
 
         if (simulateCpu) {
@@ -146,23 +198,85 @@ public class ItemsController {
         }
 
         if (simulateLeak) {
-            byte[] leak = new byte[10 * 1024 * 1024];
+            byte[] leak = new byte[leakSize * 1024];
             memoryLeakList.add(leak);
-            LOG.warn("💾 Simulated memory leak ({} blocks)", memoryLeakList.size());
+            LOG.warn("💾 Simulated memory leak ({} blocks, total: {}MB)", 
+                memoryLeakList.size(), memoryLeakList.size() * leakSize / 1024);
         }
 
-        if (simulateThread) {
+    }
+
+    private void startMemoryLeak() {
+        if (simulateLeak) {
             new Thread(() -> {
                 while (true) {
+                    byte[] leak = new byte[leakSize * 1024];
+                    memoryLeakList.add(leak);
+                    LOG.warn("💾 Added {}KB to memory leak (total: {}MB)", 
+                        leakSize, memoryLeakList.size() * leakSize / 1024);
                     try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException ignored) {
+                        Thread.sleep(leakInterval);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                     }
                 }
             }).start();
-            LOG.warn("🧵 Simulated thread creation (WARNING: Thread leak!)");
         }
+    }
 
+    private void simulateGcProblems() {
+        if (simulateGc) {
+            new Thread(() -> {
+                while (true) {
+                    System.gc();
+                    LOG.warn("🗑️ Forced garbage collection");
+                    try {
+                        Thread.sleep(gcInterval);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }).start();
+        }
+    }
+
+    private void simulateCpuLoad() {
+        if (simulateCpu) {
+            int threads = Runtime.getRuntime().availableProcessors();
+            for (int i = 0; i < threads; i++) {
+                new Thread(() -> {
+                    while (true) {
+                        long start = System.currentTimeMillis();
+                        while (System.currentTimeMillis() - start < 1000) {
+                            Math.pow(Math.PI, Math.PI);
+                        }
+                        try {
+                            Thread.sleep(100);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }).start();
+            }
+            LOG.warn("🔥 Started CPU load on {} threads", threads);
+        }
+    }
+
+    private void simulateThreadProblems() {
+        if (simulateThread) {
+            for (int i = 0; i < threadCount; i++) {
+                new Thread(() -> {
+                    synchronized (this) {
+                        try {
+                            wait(); // Threads bloqués indéfiniment
+                        } catch (InterruptedException ignored) {
+                        }
+                    }
+                }).start();
+            }
+            LOG.warn("🧵 Created {} blocked threads", threadCount);
+        }
+        
         if (simulateDeadlock) {
             final Object lock1 = new Object();
             final Object lock2 = new Object();
@@ -196,10 +310,23 @@ public class ItemsController {
 
             LOG.warn("🔒 Simulated deadlock launched with 2 threads");
         }
+    }
 
-        if (simulateError && successfulOrderCount >= 5) {
-            LOG.error("💥 Simulated error thrown (6th request or more)");
-            throw new RuntimeException("Simulated error: 6th request failed");
+    private void simulateBufferProblems() {
+        if (simulateBuffer) {
+            new Thread(() -> {
+                while (true) {
+                    ByteBuffer buffer = ByteBuffer.allocateDirect(bufferSize);
+                    directBuffers.add(buffer);
+                    LOG.warn("📦 Allocated direct buffer (total: {}MB)", 
+                        directBuffers.size() * bufferSize / 1024 / 1024);
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }).start();
         }
     }
 }

@@ -1,0 +1,26 @@
+groups:
+- name: gc_performance_alerts
+  rules:
+  - alert: HighGCTime
+    expr: rate(jvm_gc_pause_seconds_sum[5m]) / rate(jvm_gc_pause_seconds_count[5m]) > 0.1
+    labels:
+      severity: warning
+    annotations:
+      description: GC pauses taking more than 10% of application time
+      summary: High GC Time on {{ $labels.instance }}
+
+  - alert: HighSystemCPU
+    expr: system_cpu_usage > 0.7
+    labels:
+      severity: warning
+    annotations:
+      description: System CPU usage exceeding 70%
+      summary: High System CPU on {{ $labels.instance }}
+
+  - alert: ThreadBlocked
+    expr: jvm_threads_blocked > 5
+    labels:
+      severity: warning
+    annotations:
+      description: More than 5 threads blocked - potential contention issue
+      summary: Thread Blocking on {{ $labels.instance }}

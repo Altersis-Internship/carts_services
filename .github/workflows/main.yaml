@@ -1,51 +1,76 @@
-name: ci
+name: SockshopService CI/CD
 
 on:
   push:
-    branches:
-    - "*"  # run for branches
-    tags:
-    - "*"  # run for tags
+    branches: ["main", "dev"]
   pull_request:
-    branches:
-    - "*"  # run for branches
-    tags:
-    - "*"  # run for tags
+    branches: ["main"]
+
+env:
+  SERVICE_NAME: Sockshop
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
 
 jobs:
-  test:
+  test-and-build:
     runs-on: ubuntu-latest
-    env:
-      GROUP: weaveworksdemos 
-      COMMIT: ${{ github.sha }}
-      REPO: carts
     steps:
-    - uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
 
-    - name: Set up JDK 1.8
-      uses: actions/setup-java@v1
-      with:
-        java-version: 1.8
- 
-    #
-    #
-    # Build
-    - name: Build jar files
-      run: ./scripts/build.sh
+      - name: Run Tests
+        run: mvn test
 
-    #
-    #
-    # Push to dockerhub
-    - name: Push to Docker Hub
-      uses: docker/build-push-action@v1
-      if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master'
-      with:
-        username: ${{ secrets.DOCKER_USER }}
-        password: ${{ secrets.DOCKER_PASS }}
-        repository: ${{ env.GROUP }}/${{ env.REPO }}
-        tag_with_ref: true
-        tag_with_sha: true
-        path: docker/carts
-        dockerfile: docker/carts/Dockerfile
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
 
+      - name: Verify target contents
+        run: ls -l target
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sockshop-jar
+          path: target/carts.jar
+
+  docker-build-push:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Sockshop-jar  # ⚡ correspond au nom uploadé précédemment
+          path: target
+
+      - name: Verify jar for Docker build
+        run: ls -l target
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          tags: |
+            ${{ env.DOCKER_USERNAME }}/sockshop:latest
+            ${{ env.DOCKER_USERNAME }}/sockshop:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
