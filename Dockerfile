@@ -1,5 +1,5 @@
 # Utilise une image Java 17
-FROM eclipse-temurin:17-jdk
+FROM eclipse-temurin:17-jdk-jammy
 
 WORKDIR /app
 
